@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>diffview — Text Diff Viewer</title>
+<meta name="description" content="Paste two blocks of text and see a line-by-line diff, computed entirely in your browser.">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --text: #1a1d23;
+    --text-muted: #4b5262;
+    --border: #d3d7e0;
+    --accent: #2954e0;
+    --accent-text: #ffffff;
+    --add-bg: #e3f5e8;
+    --add-text: #106b31;
+    --add-marker: #2f9e52;
+    --remove-bg: #fbe7e7;
+    --remove-text: #9c1c1c;
+    --remove-marker: #cf3d3d;
+    --equal-text: var(--text-muted);
+    --focus-ring: #2954e0;
+    --linenum: #9aa1b0;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161b;
+      --surface: #1e2129;
+      --text: #eef0f4;
+      --text-muted: #b1b7c4;
+      --border: #383e4a;
+      --accent: #7fa1ff;
+      --accent-text: #0e1116;
+      --add-bg: #103820;
+      --add-text: #8fe8ac;
+      --add-marker: #4dbf78;
+      --remove-bg: #3a1717;
+      --remove-text: #ff9d9d;
+      --remove-marker: #e05c5c;
+      --equal-text: var(--text-muted);
+      --focus-ring: #7fa1ff;
+      --linenum: #6b7180;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    padding: 2rem 1rem 4rem;
+  }
+
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  h1 {
+    font-size: 1.6rem;
+    margin: 0 0 0.25rem;
+  }
+
+  p.lede {
+    color: var(--text-muted);
+    margin: 0 0 2rem;
+    max-width: 65ch;
+  }
+
+  .inputs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+  }
+
+  @media (max-width: 720px) {
+    .inputs { grid-template-columns: 1fr; }
+  }
+
+  .field label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+  }
+
+  textarea {
+    width: 100%;
+    min-height: 260px;
+    resize: vertical;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.9rem;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--text);
+    line-height: 1.45;
+  }
+
+  textarea:focus-visible,
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin: 1.5rem 0;
+  }
+
+  button.compare {
+    background: var(--accent);
+    color: var(--accent-text);
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 999px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  button.compare:hover { filter: brightness(1.05); }
+
+  .option {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+  }
+
+  .summary {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+  }
+
+  .summary .add-count { color: var(--add-marker); font-weight: 600; }
+  .summary .remove-count { color: var(--remove-marker); font-weight: 600; }
+
+  .diff-output {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    overflow-x: auto;
+  }
+
+  .diff-line {
+    display: grid;
+    grid-template-columns: 3.5rem 3.5rem 1.5rem 1fr;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+    white-space: pre;
+  }
+
+  .diff-line .ln {
+    color: var(--linenum);
+    text-align: right;
+    padding: 0.15rem 0.6rem;
+    user-select: none;
+  }
+
+  .diff-line .marker {
+    text-align: center;
+    padding: 0.15rem 0;
+    font-weight: 700;
+    user-select: none;
+  }
+
+  .diff-line .content {
+    padding: 0.15rem 0.75rem 0.15rem 0.25rem;
+    overflow-x: auto;
+  }
+
+  .diff-line.add { background: var(--add-bg); color: var(--add-text); }
+  .diff-line.add .marker { color: var(--add-marker); }
+  .diff-line.remove { background: var(--remove-bg); color: var(--remove-text); }
+  .diff-line.remove .marker { color: var(--remove-marker); }
+  .diff-line.equal { color: var(--equal-text); }
+
+  .empty-state {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+  }
+
+  footer {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-top: 2rem;
+  }
+
+  footer a { color: var(--accent); }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>diffview</h1>
+  <p class="lede">
+    Paste "before" and "after" text, compare, and see a line-by-line diff
+    with additions and removals highlighted. The diff is computed with a
+    longest-common-subsequence algorithm running entirely in your
+    browser — nothing is uploaded anywhere.
+  </p>
+
+  <form id="diff-form">
+    <div class="inputs">
+      <div class="field">
+        <label for="before-text">Before</label>
+        <textarea id="before-text" spellcheck="false" placeholder="Paste the original text here…"></textarea>
+      </div>
+      <div class="field">
+        <label for="after-text">After</label>
+        <textarea id="after-text" spellcheck="false" placeholder="Paste the changed text here…"></textarea>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button type="submit" class="compare">Compare</button>
+      <label class="option">
+        <input type="checkbox" id="ignore-whitespace">
+        Ignore leading/trailing whitespace
+      </label>
+      <span class="summary" id="summary" aria-live="polite"></span>
+    </div>
+  </form>
+
+  <section class="diff-output" aria-label="Diff result" aria-live="polite">
+    <div class="diff-line" role="presentation">
+      <span class="visually-hidden">Line numbers and diff markers header</span>
+    </div>
+    <div id="diff-result">
+      <p class="empty-state">Paste text on both sides and click Compare to see the diff.</p>
+    </div>
+  </section>
+
+  <footer>
+    Static, client-side tool — no data leaves your browser.
+    <a href="https://github.com/sidcore-dev/diffview">Source on GitHub</a>
+  </footer>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  var form = document.getElementById("diff-form");
+  var beforeText = document.getElementById("before-text");
+  var afterText = document.getElementById("after-text");
+  var ignoreWhitespace = document.getElementById("ignore-whitespace");
+  var resultEl = document.getElementById("diff-result");
+  var summaryEl = document.getElementById("summary");
+
+  function splitLines(text) {
+    if (text === "") return [];
+    return text.split(/\r\n|\r|\n/);
+  }
+
+  // Longest-common-subsequence line diff. Builds a dynamic-programming
+  // table of LCS lengths, then walks it to emit equal/add/remove ops.
+  function diffLines(oldLines, newLines, compareKey) {
+    var n = oldLines.length;
+    var m = newLines.length;
+    var keyA = oldLines.map(compareKey);
+    var keyB = newLines.map(compareKey);
+
+    var dp = new Array(n + 1);
+    for (var i = 0; i <= n; i++) {
+      dp[i] = new Uint32Array(m + 1);
+    }
+    for (var ii = n - 1; ii >= 0; ii--) {
+      for (var jj = m - 1; jj >= 0; jj--) {
+        dp[ii][jj] = keyA[ii] === keyB[jj]
+          ? dp[ii + 1][jj + 1] + 1
+          : Math.max(dp[ii + 1][jj], dp[ii][jj + 1]);
+      }
+    }
+
+    var ops = [];
+    var a = 0, b = 0;
+    while (a < n && b < m) {
+      if (keyA[a] === keyB[b]) {
+        ops.push({ type: "equal", oldLine: oldLines[a], newLine: newLines[b], oldNum: a + 1, newNum: b + 1 });
+        a++; b++;
+      } else if (dp[a + 1][b] >= dp[a][b + 1]) {
+        ops.push({ type: "remove", oldLine: oldLines[a], oldNum: a + 1 });
+        a++;
+      } else {
+        ops.push({ type: "add", newLine: newLines[b], newNum: b + 1 });
+        b++;
+      }
+    }
+    while (a < n) { ops.push({ type: "remove", oldLine: oldLines[a], oldNum: a + 1 }); a++; }
+    while (b < m) { ops.push({ type: "add", newLine: newLines[b], newNum: b + 1 }); b++; }
+    return ops;
+  }
+
+  var MAX_CELLS = 6000000; // dp table size guard so huge pastes don't freeze the tab
+
+  function escapeHtml(str) {
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function renderLine(op) {
+    var oldNum = op.oldNum != null ? op.oldNum : "";
+    var newNum = op.newNum != null ? op.newNum : "";
+    var marker = op.type === "add" ? "+" : op.type === "remove" ? "−" : " ";
+    var text = op.type === "add" ? op.newLine : op.oldLine;
+    var cls = op.type;
+    return (
+      '<div class="diff-line ' + cls + '">' +
+        '<span class="ln">' + oldNum + '</span>' +
+        '<span class="ln">' + newNum + '</span>' +
+        '<span class="marker" aria-hidden="true">' + marker + '</span>' +
+        '<span class="content">' + (escapeHtml(text || "") || "&nbsp;") + '</span>' +
+      '</div>'
+    );
+  }
+
+  function runCompare(event) {
+    if (event) event.preventDefault();
+
+    var oldLines = splitLines(beforeText.value);
+    var newLines = splitLines(afterText.value);
+
+    if (oldLines.length === 0 && newLines.length === 0) {
+      resultEl.innerHTML = '<p class="empty-state">Paste text on both sides and click Compare to see the diff.</p>';
+      summaryEl.textContent = "";
+      return;
+    }
+
+    if (oldLines.length * newLines.length > MAX_CELLS) {
+      resultEl.innerHTML = '<p class="empty-state">That much text is too large to diff in-browser. Try comparing a smaller section.</p>';
+      summaryEl.textContent = "";
+      return;
+    }
+
+    var compareKey = ignoreWhitespace.checked
+      ? function (line) { return line.trim(); }
+      : function (line) { return line; };
+
+    var ops = diffLines(oldLines, newLines, compareKey);
+
+    var added = 0, removed = 0;
+    var html = ops.map(function (op) {
+      if (op.type === "add") added++;
+      if (op.type === "remove") removed++;
+      return renderLine(op);
+    }).join("");
+
+    resultEl.innerHTML = html || '<p class="empty-state">No differences.</p>';
+    summaryEl.innerHTML = '<span class="add-count">+' + added + '</span> added, ' +
+      '<span class="remove-count">-' + removed + '</span> removed';
+  }
+
+  form.addEventListener("submit", runCompare);
+})();
+</script>
+</body>
+</html>
